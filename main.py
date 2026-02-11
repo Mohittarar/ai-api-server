@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
-import fitz
-import requests
+from fastapi import FastAPI, HTTPException, Query
+import fitz  # PyMuPDF
+import httpx  # Async HTTP client
 
 app = FastAPI()
 
-def extract_text_from_pdf(pdf_bytes):
+# ---------------- PDF TEXT EXTRACTION ----------------
+def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         text = ""
@@ -14,26 +15,47 @@ def extract_text_from_pdf(pdf_bytes):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"PDF read error: {e}")
 
-@app.post("/upload-pdf-url/")
-async def upload_pdf_url(pdfUrl: str):
-    try:
-        resp = requests.get(pdfUrl)
-        if resp.status_code != 200:
-            raise HTTPException(status_code=400, detail="Failed to download PDF")
-        pdf_bytes = resp.content
-        if len(pdf_bytes) > 20 * 1024 * 1024:  # optional: 20MB limit
-            raise HTTPException(status_code=413, detail="PDF too large")
+# ---------------- HEALTH CHECK ----------------
+@app.get("/")
+def home():
+    return {"message": "FastAPI server running on Render"}
 
+# ---------------- UPLOAD PDF VIA URL ----------------
+@app.post("/upload-pdf-url/")
+async def upload_pdf_url(pdfUrl: str = Query(..., description="Public URL of PDF file")):
+    """
+    Download PDF from a URL, extract text, and return a simple MCQ.
+    """
+    try:
+        # Async download with timeout
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(pdfUrl)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=400, detail="Failed to download PDF from URL")
+            pdf_bytes = resp.content
+
+        # Limit PDF size (optional)
+        if len(pdf_bytes) > 10 * 1024 * 1024:  # 10 MB limit
+            raise HTTPException(status_code=413, detail="PDF too large (max 10MB)")
+
+        # Extract text
         text = extract_text_from_pdf(pdf_bytes)
+
+        # Prepare simple MCQs
+        first_word = text.split(" ")[0] if text else ""
         mcqs = [
             {
                 "question": "PDF ka first word kya hai?",
-                "options": ["A", "B", "C", text.split(" ")[0] if text else ""],
-                "answer": text.split(" ")[0] if text else ""
+                "options": ["A", "B", "C", first_word],
+                "answer": first_word
             }
         ]
 
-        return {"filename": "from_url.pdf", "text_length": len(text), "mcqs": mcqs}
+        return {
+            "filename": "from_url.pdf",
+            "text_length": len(text),
+            "mcqs": mcqs
+        }
 
     except HTTPException as e:
         raise e
