@@ -1,10 +1,14 @@
 from fastapi import FastAPI, HTTPException, Query
-import fitz  # PyMuPDF
-import httpx  # Async HTTP client
+import fitz
+import httpx
+import os
+from openai import OpenAI
 
 app = FastAPI()
 
-# ---------------- PDF TEXT EXTRACTION ----------------
+# Load OpenAI key from environment
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
@@ -15,49 +19,53 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"PDF read error: {e}")
 
-# ---------------- HEALTH CHECK ----------------
-@app.get("/")
-def home():
-    return {"message": "FastAPI server running on Render"}
-
-# ---------------- UPLOAD PDF VIA URL ----------------
 @app.post("/upload-pdf-url/")
-async def upload_pdf_url(pdfUrl: str = Query(..., description="Public URL of PDF file")):
-    """
-    Download PDF from a URL, extract text, and return a simple MCQ.
-    """
+async def upload_pdf_url(pdfUrl: str = Query(...)):
     try:
-        # Async download with timeout
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(pdfUrl)
+        # Download PDF
+        async with httpx.AsyncClient(timeout=60.0) as client_http:
+            resp = await client_http.get(pdfUrl)
             if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to download PDF from URL")
+                raise HTTPException(status_code=400, detail="Failed to download PDF")
             pdf_bytes = resp.content
 
-        # Limit PDF size (optional)
-        if len(pdf_bytes) > 10 * 1024 * 1024:  # 10 MB limit
-            raise HTTPException(status_code=413, detail="PDF too large (max 10MB)")
-
-        # Extract text
         text = extract_text_from_pdf(pdf_bytes)
 
-        # Prepare simple MCQs
-        first_word = text.split(" ")[0] if text else ""
-        mcqs = [
-            {
-                "question": "PDF ka first word kya hai?",
-                "options": ["A", "B", "C", first_word],
-                "answer": first_word
-            }
-        ]
+        if len(text) < 50:
+            raise HTTPException(status_code=400, detail="PDF text too short")
 
-        return {
-            "filename": "from_url.pdf",
-            "text_length": len(text),
-            "mcqs": mcqs
-        }
+        # 🔥 AI PROMPT
+        prompt = f"""
+        You are an expert exam question generator.
 
-    except HTTPException as e:
-        raise e
+        Generate 10 high quality MCQs from the following text.
+
+        Rules:
+        - Each MCQ must contain:
+          topic
+          question
+          options (4)
+          correctIndex (0-3)
+          explanation
+          difficulty (easy/medium/hard)
+          language (en)
+          mode (theory)
+
+        Return strictly valid JSON array only.
+
+        Text:
+        {text[:5000]}
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+
+        ai_output = response.choices[0].message.content
+
+        return {"mcqs": ai_output}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
