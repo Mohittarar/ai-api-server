@@ -1,15 +1,18 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import fitz
-import httpx
+import requests
 import os
 from openai import OpenAI
 
 app = FastAPI()
 
-# Load OpenAI key from environment
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+class PdfUrlRequest(BaseModel):
+    pdfUrl: str
+
+def extract_text_from_pdf(pdf_bytes):
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         text = ""
@@ -20,41 +23,33 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         raise HTTPException(status_code=400, detail=f"PDF read error: {e}")
 
 @app.post("/upload-pdf-url/")
-async def upload_pdf_url(pdfUrl: str = Query(...)):
+async def upload_pdf_url(data: PdfUrlRequest):
     try:
-        # Download PDF
-        async with httpx.AsyncClient(timeout=60.0) as client_http:
-            resp = await client_http.get(pdfUrl)
-            if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail="Failed to download PDF")
-            pdf_bytes = resp.content
+        resp = requests.get(data.pdfUrl)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to download PDF")
 
+        pdf_bytes = resp.content
         text = extract_text_from_pdf(pdf_bytes)
 
-        if len(text) < 50:
-            raise HTTPException(status_code=400, detail="PDF text too short")
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Empty PDF content")
 
-        # 🔥 AI PROMPT
+        # 🔥 OpenAI Call
         prompt = f"""
-        You are an expert exam question generator.
+        Create 10 multiple choice questions from the following content.
+        Return JSON array format:
+        [
+          {{
+            "question": "...",
+            "options": ["A","B","C","D"],
+            "answer_index": 0,
+            "explanation": "..."
+          }}
+        ]
 
-        Generate 10 high quality MCQs from the following text.
-
-        Rules:
-        - Each MCQ must contain:
-          topic
-          question
-          options (4)
-          correctIndex (0-3)
-          explanation
-          difficulty (easy/medium/hard)
-          language (en)
-          mode (theory)
-
-        Return strictly valid JSON array only.
-
-        Text:
-        {text[:5000]}
+        Content:
+        {text[:4000]}
         """
 
         response = client.chat.completions.create(
