@@ -1,11 +1,8 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-import fitz  # PyMuPDF
+from fastapi import FastAPI, HTTPException
+import fitz
+import requests
 
 app = FastAPI()
-
-@app.get("/")
-def home():
-    return {"message": "FastAPI server running on Render"}
 
 def extract_text_from_pdf(pdf_bytes):
     try:
@@ -17,19 +14,17 @@ def extract_text_from_pdf(pdf_bytes):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"PDF read error: {e}")
 
-@app.post("/upload-pdf/")
-async def upload_pdf(file: UploadFile = File(...)):
+@app.post("/upload-pdf-url/")
+async def upload_pdf_url(pdfUrl: str):
     try:
-        if file.content_type != "application/pdf":
-            raise HTTPException(status_code=422, detail="File must be a PDF")
-
-        pdf_bytes = await file.read()
-        if len(pdf_bytes) > 5 * 1024 * 1024:  # limit 5MB for Render free plan
-            raise HTTPException(status_code=413, detail="PDF too large (max 5MB)")
+        resp = requests.get(pdfUrl)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to download PDF")
+        pdf_bytes = resp.content
+        if len(pdf_bytes) > 20 * 1024 * 1024:  # optional: 20MB limit
+            raise HTTPException(status_code=413, detail="PDF too large")
 
         text = extract_text_from_pdf(pdf_bytes)
-
-        # Simple MCQ demo
         mcqs = [
             {
                 "question": "PDF ka first word kya hai?",
@@ -38,7 +33,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             }
         ]
 
-        return {"filename": file.filename, "text_length": len(text), "mcqs": mcqs}
+        return {"filename": "from_url.pdf", "text_length": len(text), "mcqs": mcqs}
 
     except HTTPException as e:
         raise e
