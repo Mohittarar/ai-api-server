@@ -1,6 +1,6 @@
-fastapi
-uvicorn
-python-multipart
-pymupdf
-httpx
-openai
+fastapi==0.111.2
+uvicorn[standard]==0.23.2
+python-multipart==0.0.6
+PyMuPDF==1.22.5
+httpx==1.2.3
+openai==1.29.2
