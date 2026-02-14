@@ -9,7 +9,7 @@ import json
 app = FastAPI()
 
 # Initialize OpenAI client (make sure your key is set in environment variables)
-client = OpenAI(api_key=os.getenv("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"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class PdfUrlRequest(BaseModel):
     pdfUrl: str
@@ -27,7 +27,7 @@ def extract_text_from_pdf_pages(pdf_bytes):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"PDF read error: {e}")
 
-@app.post("/upload-pdf-url")
+@app.post("/upload-pdf-url/")
 async def upload_pdf_url(data: PdfUrlRequest):
     try:
         # Download PDF
