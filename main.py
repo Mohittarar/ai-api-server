@@ -27,7 +27,7 @@ def extract_text_from_pdf_pages(pdf_bytes):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"PDF read error: {e}")
 
-@app.post("/upload-pdf-url/")
+@app.post("/upload-pdf-url")
 async def upload_pdf_url(data: PdfUrlRequest):
     try:
         # Download PDF
