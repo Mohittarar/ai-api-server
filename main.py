@@ -9,7 +9,7 @@ import json
 app = FastAPI()
 
 # Initialize OpenAI client (make sure your key is set in environment variables)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("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"))
 
 class PdfUrlRequest(BaseModel):
     pdfUrl: str
